@@ -1248,31 +1248,60 @@ def process_single_account(sb, account, account_index):
 
     print(f"[INFO]   Cookie 注入成功")
 
-    # 验证 cookie 是否真的写进去了
-    try:
-        all_cookies = sb.execute_script("return document.cookie") or ""
-        print(f"[INFO]   注入后页面 cookies 长度: {len(all_cookies)}")
-        if cookie_name in all_cookies:
-            print(f"[INFO]   ✅ cookie '{cookie_name[:40]}...' 已写入浏览器")
-        else:
-            print(f"[WARN]   cookie '{cookie_name[:40]}...' 未写入！可能被 Chrome 拒绝")
-            print(f"[WARN]   当前页面 cookies: {all_cookies[:200]}...")
-    except Exception as e:
-        print(f"[WARN]   读取 cookie 异常: {e}")
+    # 用 driver.get 而不是 uc_open_with_reconnect 刷新页面
+    # 原因：uc_open_with_reconnect 重连 CDP 时会断开代理，导致 ERR_PROXY_CONNECTION_FAILED
+    # 用 driver.get 不会重连 CDP，代理保持不变
+    print(f"[INFO]   刷新页面让 Cookie 生效...")
 
-    # 多刷新几次让 cookie 生效
     for refresh_attempt in range(3):
-        sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=8)
-        time.sleep(3)
-        if is_logged_in(sb):
-            print(f"[INFO]   登录成功（刷新 {refresh_attempt+1} 次后）")
-            break
-        print(f"[INFO]   第 {refresh_attempt+1}/3 次刷新后仍未登录")
+        try:
+            sb.driver.get(f"https://{DOMAIN}/")
+            time.sleep(5)
+        except Exception as e:
+            print(f"[WARN]   driver.get 异常 (尝试 {refresh_attempt+1}/3): {e}")
+            continue
+
+        # 检查是否 ERR_PROXY_CONNECTION_FAILED
+        try:
+            page_src = sb.get_page_source() or ""
+            if "ERR_PROXY_CONNECTION_FAILED" in page_src or "No internet" in page_src:
+                print(f"[ERROR] 代理连接失败！代理可能已断开")
+                # 主动检查 sing-box 是否还活着
+                try:
+                    import subprocess as _sp
+                    r = _sp.run(["pgrep", "-f", "sing-box"], capture_output=True, text=True)
+                    if r.returncode == 0:
+                        print(f"[INFO] sing-box 进程仍存活 (PID: {r.stdout.strip()})")
+                    else:
+                        print(f"[ERROR] sing-box 进程已死！")
+                except Exception:
+                    pass
+                # 尝试用 uc_open 重连 CDP（可能恢复代理）
+                try:
+                    sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=8)
+                    time.sleep(3)
+                except Exception:
+                    pass
+                continue
+
+            cur_url = sb.get_current_url() or ""
+            cur_title = sb.execute_script("return document.title") or ""
+            print(f"[INFO]   刷新 {refresh_attempt+1}/3 | URL: {cur_url} | 标题: {cur_title}")
+
+            if is_logged_in(sb):
+                print(f"[INFO]   登录成功（刷新 {refresh_attempt+1} 次后）")
+                break
+            print(f"[INFO]   第 {refresh_attempt+1}/3 次刷新后仍未登录")
+        except Exception as e:
+            print(f"[WARN]   检查登录状态异常: {e}")
 
     if not is_logged_in(sb):
         print("[WARN]   首页未登录，尝试访问 /server/ ...")
-        sb.uc_open_with_reconnect(f"https://{DOMAIN}/server/", reconnect_time=5)
-        time.sleep(3)
+        try:
+            sb.driver.get(f"https://{DOMAIN}/server/")
+            time.sleep(5)
+        except Exception as e:
+            print(f"[WARN]   driver.get /server/ 异常: {e}")
 
     if not is_logged_in(sb):
         ss_path = f"acc{account_index+1}_login_fail.png"
@@ -1281,13 +1310,17 @@ def process_single_account(sb, account, account_index):
             html_path = f"acc{account_index+1}_login_fail.html"
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(sb.get_page_source() or "")
-            # 打印当前 URL 帮助诊断
-            print(f"[INFO]   登录失败时 URL: {sb.get_current_url()}")
-            print(f"[INFO]   登录失败时标题: {sb.execute_script('return document.title')}")
+            cur_url = sb.get_current_url() or ""
+            cur_title = sb.execute_script("return document.title") or ""
+            print(f"[INFO]   登录失败时 URL: {cur_url}")
+            print(f"[INFO]   登录失败时标题: {cur_title}")
+            # 检查 ERR_PROXY
+            if "ERR_PROXY" in (sb.get_page_source() or ""):
+                print(f"[ERROR] 检测到 ERR_PROXY 错误！代理在刷新阶段断开")
         except Exception:
             pass
         result["status"] = "cookie_invalid"
-        result["message"] = "Cookie 失效或登录失败（Cookie 注入成功但账号未登录）"
+        result["message"] = "Cookie 失效或代理断开（Cookie 注入成功但刷新时代理失败）"
         return result
 
     xsrf_token = get_xsrf_token_from_cookies(sb)
