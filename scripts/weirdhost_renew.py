@@ -1272,16 +1272,40 @@ def process_single_account(sb, account, account_index):
                     r = _sp.run(["pgrep", "-f", "sing-box"], capture_output=True, text=True)
                     if r.returncode == 0:
                         print(f"[INFO] sing-box 进程仍存活 (PID: {r.stdout.strip()})")
+                        # 进程活着但代理不通，可能是 sing-box 内部连接断了
+                        # 强制重启 sing-box
+                        print(f"[INFO] 尝试重启 sing-box...")
+                        _sp.run(["pkill", "-9", "-f", "sing-box"], capture_output=True)
+                        time.sleep(1)
+                        # 读取 PROXY_NODE 重新启动
+                        proxy_node = os.environ.get("PROXY_NODE", "").strip()
+                        if proxy_node and os.path.exists("scripts/start_singbox.sh"):
+                            restart_r = _sp.run(
+                                ["bash", "scripts/start_singbox.sh"],
+                                capture_output=True, text=True, timeout=60,
+                                env={**os.environ, "PROXY_NODE": proxy_node}
+                            )
+                            if restart_r.returncode == 0:
+                                print(f"[INFO] sing-box 重启成功")
+                            else:
+                                print(f"[ERROR] sing-box 重启失败: {restart_r.stderr[-200:]}")
+                        time.sleep(3)
                     else:
-                        print(f"[ERROR] sing-box 进程已死！")
-                except Exception:
-                    pass
-                # 尝试用 uc_open 重连 CDP（可能恢复代理）
-                try:
-                    sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=8)
-                    time.sleep(3)
-                except Exception:
-                    pass
+                        print(f"[ERROR] sing-box 进程已死！尝试启动...")
+                        proxy_node = os.environ.get("PROXY_NODE", "").strip()
+                        if proxy_node and os.path.exists("scripts/start_singbox.sh"):
+                            start_r = _sp.run(
+                                ["bash", "scripts/start_singbox.sh"],
+                                capture_output=True, text=True, timeout=60,
+                                env={**os.environ, "PROXY_NODE": proxy_node}
+                            )
+                            if start_r.returncode == 0:
+                                print(f"[INFO] sing-box 启动成功")
+                            else:
+                                print(f"[ERROR] sing-box 启动失败: {start_r.stderr[-200:]}")
+                        time.sleep(3)
+                except Exception as e:
+                    print(f"[WARN] sing-box 重启异常: {e}")
                 continue
 
             cur_url = sb.get_current_url() or ""
