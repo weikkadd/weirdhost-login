@@ -41,8 +41,9 @@ echo "=== 2. 解析 PROXY_NODE ==="
 PROTO=$(echo "$PROXY_NODE" | sed -E 's|^([a-z0-9]+)://.*|\1|')
 echo "protocol: $PROTO"
 
-mkdir -p /etc/sing-box
-CONFIG_FILE="/etc/sing-box/config.json"
+# 配置文件目录：GHA runner 没权限写 /etc，改用 /tmp
+mkdir -p /tmp/sing-box
+CONFIG_FILE="/tmp/sing-box/config.json"
 
 case "$PROTO" in
   hysteria2|hy2)
