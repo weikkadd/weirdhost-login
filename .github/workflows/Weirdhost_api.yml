@@ -30,9 +30,9 @@ jobs:
           pip install requests
 
       - name: 启动 sing-box 转发代理
-        if: ${{ secrets.PROXY_NODE != '' }}
         env:
           PROXY_NODE: ${{ secrets.PROXY_NODE }}
+        if: env.PROXY_NODE != ''
         run: bash scripts/start_singbox.sh
 
       - name: 运行 API 续期脚本
