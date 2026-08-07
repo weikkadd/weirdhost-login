@@ -1066,7 +1066,54 @@ def process_single_account(sb, account, account_index):
 
     # Step 2: 注入 Cookie 并登录
     print(f"[INFO] [步骤2] 注入 Cookie 并登录...")
-    sb.add_cookie({"name": cookie_name, "value": cookie_value, "domain": DOMAIN, "path": "/"})
+
+    # 等待页面真正进入 weirdhost 域名（CF 挑战页 URL 是 cdn-cgi/...，无法注入 Cookie）
+    def _wait_for_real_domain(timeout=15):
+        for _ in range(timeout):
+            try:
+                cur_url = sb.get_current_url() or ""
+                if "hub.weirdhost.xyz" in cur_url and "cdn-cgi" not in cur_url:
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
+    _wait_for_real_domain()
+
+    # 注入 Cookie，加重试逻辑（CF 挑战页残留会导致 unable to set cookie）
+    cookie_injected = False
+    for attempt in range(3):
+        try:
+            sb.add_cookie({
+                "name": cookie_name,
+                "value": cookie_value,
+                "domain": DOMAIN,
+                "path": "/",
+            })
+            cookie_injected = True
+            break
+        except Exception as e:
+            print(f"[WARN]   add_cookie 失败 (尝试 {attempt+1}/3): {e}")
+            # 强制重新访问，跳过 CF 挑战页
+            try:
+                sb.uc_open_with_reconnect(f"https://{DOMAIN}/server/", reconnect_time=5)
+                time.sleep(2)
+                _wait_for_real_domain()
+            except Exception:
+                pass
+
+    if not cookie_injected:
+        ss_path = f"acc{account_index+1}_cookie_fail.png"
+        try:
+            sb.save_screenshot(ss_path)
+        except Exception:
+            pass
+        result["status"] = "error"
+        result["message"] = "Cookie 注入失败（add_cookie 多次重试无效）"
+        return result
+
+    print(f"[INFO]   Cookie 注入成功")
     sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=5)
     time.sleep(3)
 
