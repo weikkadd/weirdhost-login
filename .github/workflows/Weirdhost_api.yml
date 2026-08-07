@@ -44,6 +44,7 @@ jobs:
           WEIRDHOST_COOKIE_5: ${{ secrets.WEIRDHOST_COOKIE_5 }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          CF_CLEARANCE: ${{ secrets.CF_CLEARANCE }}
           PROXY_URL: socks5://127.0.0.1:1080
         run: python scripts/weirdhost_api_renew.py
 

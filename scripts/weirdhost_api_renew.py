@@ -206,6 +206,22 @@ def renew_account(session, account):
             "path": "/",
         })
 
+    # 如果配置了 CF_CLEARANCE，也注入到 session（绕过 CF 挑战）
+    cf_clearance = os.environ.get("CF_CLEARANCE", "").strip()
+    if cf_clearance:
+        print(f"[INFO]   检测到 CF_CLEARANCE（长度 {len(cf_clearance)}），注入 session")
+        try:
+            session.cookies.set("cf_clearance", cf_clearance, domain=DOMAIN, path="/")
+        except Exception:
+            session.cookies.set({
+                "name": "cf_clearance",
+                "value": cf_clearance,
+                "domain": DOMAIN,
+                "path": "/",
+            })
+    else:
+        print(f"[WARN]   未配置 CF_CLEARANCE，CF 挑战会直接拦截")
+
     # 先访问首页（建立 session + 获取 XSRF-TOKEN）
     print(f"[INFO] [步骤1] 访问首页获取 session...")
     try:
