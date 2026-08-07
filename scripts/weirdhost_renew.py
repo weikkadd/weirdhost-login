@@ -1067,23 +1067,84 @@ def process_single_account(sb, account, account_index):
     # Step 2: 注入 Cookie 并登录
     print(f"[INFO] [步骤2] 注入 Cookie 并登录...")
 
-    # 等待页面真正进入 weirdhost 域名（CF 挑战页 URL 是 cdn-cgi/...，无法注入 Cookie）
-    def _wait_for_real_domain(timeout=15):
+    # CF 挑战页常见标题关键词（中/英/韩/日）
+    _CHALLENGE_TITLES = [
+        "just a moment", "보안 확인", "checking", "请稍候",
+        "正在进行安全", "cloudflare", "verify", "checking your browser",
+    ]
+
+    def _is_cf_challenge():
+        """检查当前页面是否仍在 CF 挑战状态"""
+        try:
+            title = (sb.execute_script("return document.title") or "").lower()
+            return any(kw in title for kw in _CHALLENGE_TITLES)
+        except Exception:
+            return True  # 异常时假设是挑战页
+
+    def _wait_for_real_page(timeout=30):
+        """等待页面真正通过 CF 验证（URL + 标题双重校验）"""
         for _ in range(timeout):
             try:
                 cur_url = sb.get_current_url() or ""
-                if "hub.weirdhost.xyz" in cur_url and "cdn-cgi" not in cur_url:
-                    return True
+                # 1. 不在 cdn-cgi 路径
+                if "cdn-cgi" in cur_url:
+                    time.sleep(1)
+                    continue
+                # 2. URL 包含 hub.weirdhost.xyz
+                if "hub.weirdhost.xyz" not in cur_url:
+                    time.sleep(1)
+                    continue
+                # 3. 页面标题不是 CF 挑战页
+                if _is_cf_challenge():
+                    time.sleep(1)
+                    continue
+                return True
             except Exception:
                 pass
             time.sleep(1)
         return False
 
-    _wait_for_real_domain()
+    # 等待页面真正通过 CF（最多 30s）
+    if not _wait_for_real_page(timeout=30):
+        print(f"[WARN]   页面仍处于 CF 挑战状态，尝试主动处理...")
+        try:
+            sb.uc_gui_handle_captcha()
+            time.sleep(3)
+            _wait_for_real_page(timeout=15)
+        except Exception:
+            pass
 
-    # 注入 Cookie，加重试逻辑（CF 挑战页残留会导致 unable to set cookie）
+    # 打印调试信息
+    try:
+        cur_url = sb.get_current_url() or ""
+        cur_title = sb.execute_script("return document.title") or ""
+        print(f"[INFO]   当前 URL: {cur_url}")
+        print(f"[INFO]   当前标题: {cur_title}")
+    except Exception:
+        pass
+
+    # 注入 Cookie：优先用 CDP 命令（不依赖页面状态），失败则用 add_cookie
     cookie_injected = False
     for attempt in range(3):
+        # 方案 1：CDP Network.setCookie（最可靠）
+        try:
+            sb.driver.execute_cdp_cmd("Network.setCookie", {
+                "name": cookie_name,
+                "value": cookie_value,
+                "domain": "." + DOMAIN,
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "Lax",
+            })
+            cookie_injected = True
+            print(f"[INFO]   CDP setCookie 成功")
+            break
+        except Exception as e1:
+            err_msg = str(e1).split("\n")[0][:80]
+            print(f"[WARN]   CDP setCookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+
+        # 方案 2：Selenium add_cookie（备用）
         try:
             sb.add_cookie({
                 "name": cookie_name,
@@ -1092,29 +1153,39 @@ def process_single_account(sb, account, account_index):
                 "path": "/",
             })
             cookie_injected = True
+            print(f"[INFO]   add_cookie 成功")
             break
-        except Exception as e:
-            print(f"[WARN]   add_cookie 失败 (尝试 {attempt+1}/3): {e}")
-            # 强制重新访问，跳过 CF 挑战页
-            try:
-                sb.uc_open_with_reconnect(f"https://{DOMAIN}/server/", reconnect_time=5)
-                time.sleep(2)
-                _wait_for_real_domain()
-            except Exception:
-                pass
+        except Exception as e2:
+            err_msg = str(e2).split("\n")[0][:80]
+            print(f"[WARN]   add_cookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+
+        # 重试前：重新访问 + 主动处理 CF
+        try:
+            sb.uc_open_with_reconnect(f"https://{DOMAIN}/login", reconnect_time=10)
+            time.sleep(3)
+            if _is_cf_challenge():
+                sb.uc_gui_handle_captcha()
+                time.sleep(3)
+            _wait_for_real_page(timeout=15)
+        except Exception:
+            pass
 
     if not cookie_injected:
         ss_path = f"acc{account_index+1}_cookie_fail.png"
         try:
             sb.save_screenshot(ss_path)
+            # 保存 HTML 用于调试
+            html_path = f"acc{account_index+1}_cookie_fail.html"
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(sb.get_page_source() or "")
         except Exception:
             pass
         result["status"] = "error"
-        result["message"] = "Cookie 注入失败（add_cookie 多次重试无效）"
+        result["message"] = "Cookie 注入失败（CDP + add_cookie 多次重试无效）"
         return result
 
     print(f"[INFO]   Cookie 注入成功")
-    sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=5)
+    sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=8)
     time.sleep(3)
 
     if not is_logged_in(sb):
