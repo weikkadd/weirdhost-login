@@ -1426,7 +1426,11 @@ def add_server_time():
     if proxy_url:
         # SeleniumBase 接受 --proxy-server=xxx 参数
         proxy_arg = f"--proxy-server={proxy_url}"
-        print(f"[INFO] 使用代理: {proxy_url}")
+        # 脱敏打印（不显示密码）
+        masked_proxy = re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', proxy_url)
+        print(f"[INFO] 使用代理: {masked_proxy}")
+    else:
+        print(f"[INFO] 未配置代理（直连 GitHub IP）")
 
     # 合并 chromium 启动参数
     chromium_args = "--disable-dev-shm-usage,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-background-timer-throttling,--disable-blink-features=AutomationControlled"
@@ -1442,6 +1446,20 @@ def add_server_time():
             chromium_arg=chromium_args
         ) as sb:
             print("\n[INFO] 浏览器已启动")
+
+            # 启动后立即验证代理是否生效（通过访问 ipinfo.io 查出口 IP）
+            try:
+                print("[INFO] 验证代理出口 IP...")
+                sb.uc_open_with_reconnect("https://ipinfo.io/json", reconnect_time=5)
+                time.sleep(2)
+                ip_text = sb.execute_script("return document.body.innerText") or ""
+                import json as _json
+                ip_data = _json.loads(ip_text)
+                print(f"[INFO]   出口 IP: {ip_data.get('ip', 'unknown')}")
+                print(f"[INFO]   地区: {ip_data.get('country', '?')} / {ip_data.get('city', '?')}")
+                print(f"[INFO]   ISP: {ip_data.get('org', 'unknown')}")
+            except Exception as e:
+                print(f"[WARN]   代理验证失败: {e}")
 
             for i, account in enumerate(accounts):
                 result = process_single_account(sb, account, i)
