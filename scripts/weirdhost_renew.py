@@ -138,6 +138,10 @@ def parse_weirdhost_cookie(cookie_str):
     if not cookie_str:
         return (None, None)
     cookie_str = cookie_str.strip()
+    # 兼容整段 Cookie 请求头：只取第一个 remember_web_xxx=yyy
+    # 多个 cookie 用 ; 分隔，所以切到第一个 ; 为止
+    if ";" in cookie_str:
+        cookie_str = cookie_str.split(";", 1)[0].strip()
     if "=" in cookie_str:
         parts = cookie_str.split("=", 1)
         if len(parts) == 2:
