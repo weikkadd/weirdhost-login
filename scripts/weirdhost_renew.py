@@ -145,7 +145,9 @@ def parse_weirdhost_cookie(cookie_str):
     if "=" in cookie_str:
         parts = cookie_str.split("=", 1)
         if len(parts) == 2:
-            return (parts[0].strip(), unquote(parts[1].strip()))
+            # 不做 unquote！URL 解码会把 %3D 解码成 =，导致 value 里出现 = 号
+            # 这会让 Selenium add_cookie 误判 name/value 分隔，报 invalid cookie domain
+            return (parts[0].strip(), parts[1].strip())
     return (None, None)
 
 
@@ -1186,19 +1188,37 @@ def process_single_account(sb, account, account_index):
             err_msg = str(e2).split("\n")[0][:100]
             print(f"[WARN]   add_cookie(带domain) 失败 (尝试 {attempt+1}/3): {err_msg}")
 
-        # 方案 3：CDP Network.setCookie（不指定 domain，让它自动取当前页面的）
+        # 方案 3：CDP Network.setCookie（带 url 参数，自动推断 domain）
         try:
             sb.driver.execute_cdp_cmd("Network.setCookie", {
                 "name": cookie_name,
                 "value": cookie_value,
+                "url": f"https://{DOMAIN}/",
                 "path": "/",
             })
             cookie_injected = True
-            print(f"[INFO]   CDP setCookie 成功（无 domain 字段）")
+            print(f"[INFO]   CDP setCookie 成功（带 url）")
             break
         except Exception as e3:
             err_msg = str(e3).split("\n")[0][:100]
             print(f"[WARN]   CDP setCookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+
+        # 方案 4：直接通过 JS document.cookie 注入（最底层，绕过 Selenium）
+        try:
+            js_set = f"""
+            document.cookie = "{cookie_name}={cookie_value}; path=/; domain={DOMAIN}; secure; samesite=lax";
+            return document.cookie;
+            """
+            result_js = sb.execute_script(js_set)
+            if cookie_name in (result_js or ""):
+                cookie_injected = True
+                print(f"[INFO]   document.cookie 注入成功")
+                break
+            else:
+                print(f"[WARN]   document.cookie 注入未生效，当前 cookie: {(result_js or '')[:80]}")
+        except Exception as e4:
+            err_msg = str(e4).split("\n")[0][:100]
+            print(f"[WARN]   document.cookie 失败 (尝试 {attempt+1}/3): {err_msg}")
 
         # 重试前：确保还在 weirdhost 域名下
         try:
