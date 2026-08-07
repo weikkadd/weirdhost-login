@@ -1104,19 +1104,41 @@ def process_single_account(sb, account, account_index):
     # 步骤 1：先等待 CF 真正通过（最多 30s）
     if not _wait_for_real_page(timeout=30):
         print(f"[INFO]   CF 挑战页未自动通过，主动调用 uc_gui_handle_captcha...")
-        try:
-            sb.uc_gui_handle_captcha()
-            time.sleep(3)
-        except Exception as e:
-            print(f"[WARN]   uc_gui_handle_captcha 异常: {e}")
-        # 再次等待
-        if not _wait_for_real_page(timeout=20):
-            # 兜底：调用原 handle_turnstile
-            if not handle_turnstile(sb):
-                print(f"[ERROR] Turnstile 验证失败")
-                result["status"] = "error"
-                result["message"] = "Cloudflare Turnstile 验证失败"
-                return result
+
+        # 多轮处理：CF 偶尔需要点击多次才能放行
+        for cf_attempt in range(5):
+            print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/5...")
+            try:
+                sb.uc_gui_handle_captcha()
+                time.sleep(5)  # 给 CF 时间发 token
+            except Exception as e:
+                print(f"[WARN]   uc_gui_handle_captcha 异常: {e}")
+
+            # 检查是否真的通过了
+            if not _is_cf_challenge():
+                print(f"[INFO]   CF 验证通过（尝试 {cf_attempt+1} 次后）")
+                break
+
+            # 如果还在挑战页，刷新页面重新触发 CF
+            if cf_attempt < 4:
+                print(f"[INFO]   仍在挑战页，刷新页面重新触发 CF...")
+                try:
+                    sb.driver.get(f"https://{DOMAIN}/")
+                    time.sleep(5)
+                except Exception:
+                    pass
+
+                # 等待新挑战页加载
+                _wait_for_real_page(timeout=10)
+
+        # 最后兜底：调用原 handle_turnstile
+        if _is_cf_challenge():
+            print(f"[INFO]   调用 handle_turnstile 兜底...")
+            try:
+                if not handle_turnstile(sb):
+                    print(f"[WARN]   handle_turnstile 也未通过")
+            except Exception as e:
+                print(f"[WARN]   handle_turnstile 异常: {e}")
 
     # 打印通过 CF 后的页面信息
     try:
@@ -1129,8 +1151,19 @@ def process_single_account(sb, account, account_index):
 
     if _is_cf_challenge():
         print(f"[ERROR] CF 验证未通过，仍在挑战页")
+        # 保存截图和 HTML 用于排查
+        try:
+            ss_path = f"acc{account_index+1}_cf_blocked.png"
+            sb.save_screenshot(ss_path)
+            html_path = f"acc{account_index+1}_cf_blocked.html"
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(sb.get_page_source() or "")
+            print(f"[INFO]   已保存截图: {ss_path}")
+            print(f"[INFO]   已保存 HTML: {html_path}")
+        except Exception:
+            pass
         result["status"] = "error"
-        result["message"] = "Cloudflare 验证未通过（页面仍在挑战状态）"
+        result["message"] = "Cloudflare 验证未通过（页面仍在挑战状态，可能需要更换代理或浏览器指纹）"
         return result
 
     print(f"[INFO] ✅ CF 验证通过")
