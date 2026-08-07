@@ -1130,45 +1130,75 @@ def process_single_account(sb, account, account_index):
     # Step 2: 注入 Cookie 并登录
     print(f"[INFO] [步骤2] 注入 Cookie 并登录...")
 
-    # 注入 Cookie：优先用 CDP 命令（不依赖页面状态），失败则用 add_cookie
+    # 打印 Cookie 信息用于调试（不显示完整 value）
+    print(f"[INFO]   Cookie name: {cookie_name}")
+    print(f"[INFO]   Cookie value 长度: {len(cookie_value)}")
+    print(f"[INFO]   Cookie value 前 20 字符: {cookie_value[:20]}...")
+
+    # 检测 Cookie value 是否包含非法字符
+    illegal_chars = [c for c in [';', ' ', '"', '\\', '\n', '\r'] if c in cookie_value]
+    if illegal_chars:
+        print(f"[ERROR] Cookie value 包含非法字符: {illegal_chars}")
+        result["status"] = "error"
+        result["message"] = f"Cookie value 包含非法字符: {illegal_chars}（请重新从浏览器复制完整 Cookie）"
+        return result
+
+    # 注入 Cookie：多种方式 + 多次重试
     cookie_injected = False
     for attempt in range(3):
-        # 方案 1：CDP Network.setCookie（最可靠）
+        # 打印当前页面 URL（诊断 invalid cookie domain）
         try:
-            sb.driver.execute_cdp_cmd("Network.setCookie", {
-                "name": cookie_name,
-                "value": cookie_value,
-                "domain": "." + DOMAIN,
-                "path": "/",
-                "secure": True,
-                "httpOnly": True,
-                "sameSite": "Lax",
-            })
-            cookie_injected = True
-            print(f"[INFO]   CDP setCookie 成功")
-            break
-        except Exception as e1:
-            err_msg = str(e1).split("\n")[0][:80]
-            print(f"[WARN]   CDP setCookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+            cur_url = sb.get_current_url() or ""
+            print(f"[INFO]   重试 {attempt+1}/3 | 当前 URL: {cur_url}")
+        except Exception:
+            pass
 
-        # 方案 2：Selenium add_cookie（备用）
+        # 方案 1：Selenium add_cookie（标准方式，不带 domain 字段最稳）
         try:
             sb.add_cookie({
                 "name": cookie_name,
                 "value": cookie_value,
-                "domain": DOMAIN,
                 "path": "/",
             })
             cookie_injected = True
-            print(f"[INFO]   add_cookie 成功")
+            print(f"[INFO]   add_cookie 成功（无 domain 字段）")
+            break
+        except Exception as e1:
+            err_msg = str(e1).split("\n")[0][:100]
+            print(f"[WARN]   add_cookie(无domain) 失败 (尝试 {attempt+1}/3): {err_msg}")
+
+        # 方案 2：Selenium add_cookie（带当前页面 domain）
+        try:
+            sb.add_cookie({
+                "name": cookie_name,
+                "value": cookie_value,
+                "domain": DOMAIN,  # 不带前导 .
+                "path": "/",
+            })
+            cookie_injected = True
+            print(f"[INFO]   add_cookie 成功（带 domain）")
             break
         except Exception as e2:
-            err_msg = str(e2).split("\n")[0][:80]
-            print(f"[WARN]   add_cookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+            err_msg = str(e2).split("\n")[0][:100]
+            print(f"[WARN]   add_cookie(带domain) 失败 (尝试 {attempt+1}/3): {err_msg}")
 
-        # 重试前：重新访问 + 主动处理 CF
+        # 方案 3：CDP Network.setCookie（不指定 domain，让它自动取当前页面的）
         try:
-            sb.uc_open_with_reconnect(f"https://{DOMAIN}/login", reconnect_time=10)
+            sb.driver.execute_cdp_cmd("Network.setCookie", {
+                "name": cookie_name,
+                "value": cookie_value,
+                "path": "/",
+            })
+            cookie_injected = True
+            print(f"[INFO]   CDP setCookie 成功（无 domain 字段）")
+            break
+        except Exception as e3:
+            err_msg = str(e3).split("\n")[0][:100]
+            print(f"[WARN]   CDP setCookie 失败 (尝试 {attempt+1}/3): {err_msg}")
+
+        # 重试前：确保还在 weirdhost 域名下
+        try:
+            sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=8)
             time.sleep(3)
             if _is_cf_challenge():
                 sb.uc_gui_handle_captcha()
@@ -1181,14 +1211,13 @@ def process_single_account(sb, account, account_index):
         ss_path = f"acc{account_index+1}_cookie_fail.png"
         try:
             sb.save_screenshot(ss_path)
-            # 保存 HTML 用于调试
             html_path = f"acc{account_index+1}_cookie_fail.html"
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(sb.get_page_source() or "")
         except Exception:
             pass
         result["status"] = "error"
-        result["message"] = "Cookie 注入失败（CDP + add_cookie 多次重试无效）"
+        result["message"] = "Cookie 注入失败（3 种方式 × 3 次重试无效）"
         return result
 
     print(f"[INFO]   Cookie 注入成功")
