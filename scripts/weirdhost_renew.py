@@ -1269,40 +1269,46 @@ def process_single_account(sb, account, account_index):
                 # 主动检查 sing-box 是否还活着
                 try:
                     import subprocess as _sp
-                    r = _sp.run(["pgrep", "-f", "sing-box"], capture_output=True, text=True)
-                    if r.returncode == 0:
-                        print(f"[INFO] sing-box 进程仍存活 (PID: {r.stdout.strip()})")
-                        # 进程活着但代理不通，可能是 sing-box 内部连接断了
-                        # 强制重启 sing-box
-                        print(f"[INFO] 尝试重启 sing-box...")
+                    # 找 start_singbox.sh：尝试多个可能的路径
+                    script_paths = [
+                        "scripts/start_singbox.sh",  # 相对仓库根
+                        "/home/runner/work/weirdhost-login/weirdhost-login/scripts/start_singbox.sh",
+                    ]
+                    script_path = next((p for p in script_paths if os.path.exists(p)), None)
+                    if not script_path:
+                        # 用 find 兜底
+                        find_r = _sp.run(
+                            ["find", "/home/runner/work", "-name", "start_singbox.sh", "-type", "f"],
+                            capture_output=True, text=True, timeout=10
+                        )
+                        if find_r.returncode == 0 and find_r.stdout.strip():
+                            script_path = find_r.stdout.strip().split("\n")[0]
+                            print(f"[INFO] 通过 find 找到脚本: {script_path}")
+                        else:
+                            print(f"[ERROR] 找不到 start_singbox.sh！")
+
+                    proxy_node = os.environ.get("PROXY_NODE", "").strip()
+                    if not proxy_node:
+                        print(f"[ERROR] PROXY_NODE 环境变量为空，无法重启 sing-box")
+                    elif not script_path:
+                        print(f"[ERROR] 找不到 start_singbox.sh，无法重启 sing-box")
+                    else:
+                        print(f"[INFO] 杀掉残留 sing-box 进程...")
                         _sp.run(["pkill", "-9", "-f", "sing-box"], capture_output=True)
                         time.sleep(1)
-                        # 读取 PROXY_NODE 重新启动
-                        proxy_node = os.environ.get("PROXY_NODE", "").strip()
-                        if proxy_node and os.path.exists("scripts/start_singbox.sh"):
-                            restart_r = _sp.run(
-                                ["bash", "scripts/start_singbox.sh"],
-                                capture_output=True, text=True, timeout=60,
-                                env={**os.environ, "PROXY_NODE": proxy_node}
-                            )
-                            if restart_r.returncode == 0:
-                                print(f"[INFO] sing-box 重启成功")
-                            else:
-                                print(f"[ERROR] sing-box 重启失败: {restart_r.stderr[-200:]}")
-                        time.sleep(3)
-                    else:
-                        print(f"[ERROR] sing-box 进程已死！尝试启动...")
-                        proxy_node = os.environ.get("PROXY_NODE", "").strip()
-                        if proxy_node and os.path.exists("scripts/start_singbox.sh"):
-                            start_r = _sp.run(
-                                ["bash", "scripts/start_singbox.sh"],
-                                capture_output=True, text=True, timeout=60,
-                                env={**os.environ, "PROXY_NODE": proxy_node}
-                            )
-                            if start_r.returncode == 0:
-                                print(f"[INFO] sing-box 启动成功")
-                            else:
-                                print(f"[ERROR] sing-box 启动失败: {start_r.stderr[-200:]}")
+
+                        print(f"[INFO] 重启 sing-box: bash {script_path}")
+                        restart_r = _sp.run(
+                            ["bash", script_path],
+                            capture_output=True, text=True, timeout=60,
+                            env={**os.environ, "PROXY_NODE": proxy_node}
+                        )
+                        # 打印完整输出（不只是 stderr）
+                        print(f"[INFO] 退出码: {restart_r.returncode}")
+                        if restart_r.stdout:
+                            print(f"[INFO] stdout:\n{restart_r.stdout[-1500:]}")
+                        if restart_r.stderr:
+                            print(f"[INFO] stderr:\n{restart_r.stderr[-1500:]}")
                         time.sleep(3)
                 except Exception as e:
                     print(f"[WARN] sing-box 重启异常: {e}")
