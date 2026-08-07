@@ -26,6 +26,13 @@ import requests
 from urllib.parse import unquote, quote
 from datetime import datetime, timedelta
 
+# 尝试导入 curl_cffi（伪装 TLS 指纹，绕过 CF）
+try:
+    from curl_cffi import requests as cffi_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
 sys.stdout.reconfigure(line_buffering=True)
 
 # ==================== 配置 ====================
@@ -39,19 +46,29 @@ PROXY_URL = os.environ.get("PROXY_URL", "").strip()
 
 # 构造 requests session
 def make_session():
-    s = requests.Session()
+    # 优先用 curl_cffi（伪装 TLS 指纹）
+    if HAS_CURL_CFFI:
+        print(f"[INFO] 使用 curl_cffi（Chrome TLS 指纹，绕过 CF）")
+        s = cffi_requests.Session(impersonate="chrome120")
+    else:
+        print(f"[WARN] curl_cffi 未安装，使用普通 requests（可能被 CF 拦截）")
+        s = requests.Session()
+
     s.headers.update({
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8,zh-CN;q=0.7",
         "X-Requested-With": "XMLHttpRequest",
         "Referer": BASE_URL + "/",
         "Origin": BASE_URL,
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Linux"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
     })
     if PROXY_URL:
-        proxies = {"http": PROXY_URL, "https": PROXY_URL}
-        s.proxies.update(proxies)
+        s.proxies.update({"http": PROXY_URL, "https": PROXY_URL})
         print(f"[INFO] 使用代理: {PROXY_URL}")
     return s
 
@@ -118,9 +135,16 @@ def detect_accounts():
 
 def get_xsrf_token(session):
     """从 session cookies 获取 XSRF-TOKEN"""
-    token = session.cookies.get("XSRF-TOKEN")
-    if token:
-        return unquote(token)
+    try:
+        # curl_cffi 的 cookies 是 dict-like
+        if HAS_CURL_CFFI and hasattr(session.cookies, 'get'):
+            token = session.cookies.get("XSRF-TOKEN")
+        else:
+            token = session.cookies.get("XSRF-TOKEN")
+        if token:
+            return unquote(token)
+    except Exception as e:
+        print(f"[WARN] 获取 XSRF-TOKEN 异常: {e}")
     return None
 
 
@@ -171,14 +195,28 @@ def renew_account(session, account):
     print(f"{'=' * 60}")
 
     # 注入 cookie
-    session.cookies.set(account["name"], account["value"], domain=DOMAIN, path="/")
+    try:
+        session.cookies.set(account["name"], account["value"], domain=DOMAIN, path="/")
+    except Exception:
+        # curl_cffi 兼容方式
+        session.cookies.set({
+            "name": account["name"],
+            "value": account["value"],
+            "domain": DOMAIN,
+            "path": "/",
+        })
 
     # 先访问首页（建立 session + 获取 XSRF-TOKEN）
     print(f"[INFO] [步骤1] 访问首页获取 session...")
     try:
         resp = session.get(BASE_URL + "/", timeout=30, allow_redirects=True)
         print(f"[INFO]   首页状态码: {resp.status_code}")
-        print(f"[INFO]   当前 cookies: {list(session.cookies.keys())}")
+        # 兼容 curl_cffi 和 requests 的 cookies 访问方式
+        try:
+            cookie_names = list(session.cookies.keys())
+        except Exception:
+            cookie_names = list(session.cookies.dict.keys()) if hasattr(session.cookies, 'dict') else []
+        print(f"[INFO]   当前 cookies: {cookie_names}")
     except Exception as e:
         print(f"[ERROR] 首页访问失败: {e}")
         result["status"] = "error"
