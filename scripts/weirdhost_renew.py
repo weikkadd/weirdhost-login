@@ -1057,20 +1057,12 @@ def process_single_account(sb, account, account_index):
     # Step 1: Turnstile (登录阶段)
     print(f"[INFO] [步骤1] 访问站点并处理 Cloudflare 验证...")
     sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=5)
-    if not handle_turnstile(sb):
-        print(f"[ERROR] Turnstile 验证失败")
-        result["status"] = "error"
-        result["message"] = "Cloudflare Turnstile 验证失败"
-        return result
-    print(f"[INFO] ✅ CF 验证通过")
 
-    # Step 2: 注入 Cookie 并登录
-    print(f"[INFO] [步骤2] 注入 Cookie 并登录...")
-
-    # CF 挑战页常见标题关键词（中/英/韩/日）
+    # CF 挑战页标题关键词（提前定义，步骤 1 也要用）
     _CHALLENGE_TITLES = [
-        "just a moment", "보안 확인", "checking", "请稍候",
+        "just a moment", "보안 확인", "checking", "请稍候", "请稍后",
         "正在进行安全", "cloudflare", "verify", "checking your browser",
+        "잠시만", "기다리", "보안", "확인", "稍候", "稍等", "验证", "安全检查",
     ]
 
     def _is_cf_challenge():
@@ -1086,15 +1078,12 @@ def process_single_account(sb, account, account_index):
         for _ in range(timeout):
             try:
                 cur_url = sb.get_current_url() or ""
-                # 1. 不在 cdn-cgi 路径
                 if "cdn-cgi" in cur_url:
                     time.sleep(1)
                     continue
-                # 2. URL 包含 hub.weirdhost.xyz
                 if "hub.weirdhost.xyz" not in cur_url:
                     time.sleep(1)
                     continue
-                # 3. 页面标题不是 CF 挑战页
                 if _is_cf_challenge():
                     time.sleep(1)
                     continue
@@ -1104,24 +1093,42 @@ def process_single_account(sb, account, account_index):
             time.sleep(1)
         return False
 
-    # 等待页面真正通过 CF（最多 30s）
+    # 步骤 1：先等待 CF 真正通过（最多 30s）
     if not _wait_for_real_page(timeout=30):
-        print(f"[WARN]   页面仍处于 CF 挑战状态，尝试主动处理...")
+        print(f"[INFO]   CF 挑战页未自动通过，主动调用 uc_gui_handle_captcha...")
         try:
             sb.uc_gui_handle_captcha()
             time.sleep(3)
-            _wait_for_real_page(timeout=15)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN]   uc_gui_handle_captcha 异常: {e}")
+        # 再次等待
+        if not _wait_for_real_page(timeout=20):
+            # 兜底：调用原 handle_turnstile
+            if not handle_turnstile(sb):
+                print(f"[ERROR] Turnstile 验证失败")
+                result["status"] = "error"
+                result["message"] = "Cloudflare Turnstile 验证失败"
+                return result
 
-    # 打印调试信息
+    # 打印通过 CF 后的页面信息
     try:
         cur_url = sb.get_current_url() or ""
         cur_title = sb.execute_script("return document.title") or ""
-        print(f"[INFO]   当前 URL: {cur_url}")
-        print(f"[INFO]   当前标题: {cur_title}")
+        print(f"[INFO]   CF 通过后 URL: {cur_url}")
+        print(f"[INFO]   CF 通过后标题: {cur_title}")
     except Exception:
         pass
+
+    if _is_cf_challenge():
+        print(f"[ERROR] CF 验证未通过，仍在挑战页")
+        result["status"] = "error"
+        result["message"] = "Cloudflare 验证未通过（页面仍在挑战状态）"
+        return result
+
+    print(f"[INFO] ✅ CF 验证通过")
+
+    # Step 2: 注入 Cookie 并登录
+    print(f"[INFO] [步骤2] 注入 Cookie 并登录...")
 
     # 注入 Cookie：优先用 CDP 命令（不依赖页面状态），失败则用 add_cookie
     cookie_injected = False
