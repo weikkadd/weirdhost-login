@@ -217,6 +217,22 @@ def renew_account(session, account):
         except Exception:
             cookie_names = list(session.cookies.dict.keys()) if hasattr(session.cookies, 'dict') else []
         print(f"[INFO]   当前 cookies: {cookie_names}")
+
+        # 诊断 403 原因
+        if resp.status_code == 403:
+            print(f"[INFO]   --- 403 诊断 ---")
+            print(f"[INFO]   响应 headers:")
+            for k, v in resp.headers.items():
+                if k.lower() in ['server', 'cf-ray', 'cf-mitigated', 'cf-cache-status',
+                                 'content-type', 'set-cookie', 'retry-after']:
+                    print(f"[INFO]     {k}: {v[:200]}")
+            print(f"[INFO]   响应 body 前 500 字符:")
+            try:
+                body = resp.text[:500]
+                print(f"[INFO]   {body}")
+            except Exception:
+                pass
+            print(f"[INFO]   --- 诊断结束 ---")
     except Exception as e:
         print(f"[ERROR] 首页访问失败: {e}")
         result["status"] = "error"
