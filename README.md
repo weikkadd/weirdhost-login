@@ -55,6 +55,16 @@
 
 ⚠️ **变量名**：是 `PROXY_NODE`（不是 `PROXY_URL`）。`PROXY_NODE` 接受原始协议链接（hysteria2/vless/vmess/trojan 等），由 sing-box 转成本地 SOCKS5 给 Chrome 用。
 
+#### 🛡️ 可选（绕过 CF Turnstile，成功率最高）
+
+| Secret 名称 | 示例值 | 说明 |
+|:--|:--|:--|
+| `CF_CLEARANCE` | `v3qGL8mXhN_XXXXX...` | 手动获取的 cf_clearance Cookie，可绕过 CF 挑战 |
+
+**使用场景**：如果你已配置 `PROXY_NODE` 但 CF 依然拦截（日志显示 "CF 验证未通过，仍在挑战页"），就需要手动获取 `cf_clearance` 注入。
+
+**获取方法**（见下方「🔄 cf_clearance 获取方法」章节）。
+
 #### 🔧 可选
 
 | Secret 名称 | 示例值 | 说明 |
@@ -98,6 +108,52 @@ remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d=eyJpdiI6...
 ```
 
 ⚠️ **如果误从 Network 标签复制了整段 Cookie 请求头**（包含 `;` 分隔的多个 cookie），脚本会自动截断到第一个 `;` 之前的部分，但建议尽量用 Application 标签只复制单个 Cookie 的 value。
+
+---
+
+## 🔄 cf_clearance 获取方法
+
+⚠️ **仅当配置了 `PROXY_NODE` 后 CF 仍拦截时才需要**。如果你的代理是优质住宅 IP 且日志显示 `✅ CF 验证通过`，**不需要配置 CF_CLEARANCE**。
+
+### 为什么需要 cf_clearance
+
+即使代理 IP 是优质住宅（如日本索尼宽带），Cloudflare 仍可能通过浏览器指纹识别出 SeleniumBase UC 是 bot，**5 次点击 Turnstile 都不发 token**。
+
+`cf_clearance` 是 CF 通过验证后发的 Cookie，**有这个 Cookie CF 直接放行**，不再做挑战。
+
+### 获取步骤
+
+1. **在你自己的电脑浏览器**（不是手机）打开：
+   ```
+   https://hub.weirdhost.xyz
+   ```
+
+2. **配置和 GHA 相同的代理**：
+   - 在浏览器里配置你的代理（和你 GHA Secrets 里 `PROXY_NODE` 用同一个节点）
+   - 这一步很重要：`cf_clearance` 是绑定 IP 的，必须用相同代理获取
+
+3. **手动通过 CF 验证**：
+   - 浏览器会显示 CF Turnstile
+   - **手动点击复选框**完成验证
+   - 等待页面加载到 weirdhost 主页
+
+4. **复制 cf_clearance Cookie**：
+   - 按 `F12` → **Application** 标签
+   - 左侧 **Cookies** → `https://hub.weirdhost.xyz`
+   - 找到名为 `cf_clearance` 的 Cookie
+   - **复制 Value 列的内容**（一长串字符，如 `v3qGL8mXhN_XXXXX...`）
+
+5. **配置到 GitHub Secret**：
+   - 仓库 → Settings → Secrets → Actions → New repository secret
+   - Name: `CF_CLEARANCE`
+   - Secret: 粘贴刚才复制的值
+
+### ⚠️ cf_clearance 注意事项
+
+- **有效期**：通常 30 分钟到 7 天，过期后需要重新获取
+- **IP 绑定**：cf_clearance 和获取它的 IP 绑定，**所以必须在浏览器里用相同代理获取**
+- **UA 绑定**：cf_clearance 也和 User-Agent 绑定，但脚本里 Chrome UA 是固定的，不用管
+- **如果还是失败**：cf_clearance 过期了，重新获取
 
 ---
 

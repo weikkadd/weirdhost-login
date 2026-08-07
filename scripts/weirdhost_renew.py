@@ -1064,7 +1064,35 @@ def process_single_account(sb, account, account_index):
 
     # Step 1: Turnstile (登录阶段)
     print(f"[INFO] [步骤1] 访问站点并处理 Cloudflare 验证...")
+
+    # 检查是否配置了 CF_CLEARANCE（手动获取的 CF 通过凭证）
+    cf_clearance = os.environ.get("CF_CLEARANCE", "").strip()
+    if cf_clearance:
+        print(f"[INFO]   检测到 CF_CLEARANCE，将注入以绕过 CF 挑战")
+        print(f"[INFO]   CF_CLEARANCE 长度: {len(cf_clearance)}")
+    else:
+        print(f"[INFO]   未配置 CF_CLEARANCE（可选，配置后可绕过 CF 挑战）")
+
+    # 先访问页面触发 CF
     sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=5)
+
+    # 如果配置了 cf_clearance，立刻注入
+    if cf_clearance:
+        try:
+            # 用 CDP 注入 cf_clearance
+            sb.driver.execute_cdp_cmd("Network.setCookie", {
+                "name": "cf_clearance",
+                "value": cf_clearance,
+                "url": f"https://{DOMAIN}/",
+                "path": "/",
+            })
+            print(f"[INFO]   cf_clearance 已注入")
+            time.sleep(2)
+            # 刷新页面让 cookie 生效
+            sb.driver.get(f"https://{DOMAIN}/")
+            time.sleep(5)
+        except Exception as e:
+            print(f"[WARN]   cf_clearance 注入失败: {e}")
 
     # CF 挑战页标题关键词（提前定义，步骤 1 也要用）
     _CHALLENGE_TITLES = [

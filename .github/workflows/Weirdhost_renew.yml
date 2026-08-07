@@ -50,6 +50,7 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
           PROXY_NODE: ${{ secrets.PROXY_NODE }}
+          CF_CLEARANCE: ${{ secrets.CF_CLEARANCE }}
           PROXY_URL: socks5://127.0.0.1:1080
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
