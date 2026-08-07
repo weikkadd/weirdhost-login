@@ -1419,13 +1419,27 @@ def add_server_time():
 
     results = []
 
+    # 代理配置（可选）：支持 HTTP/HTTPS/SOCKS5 代理，绕过 CF 对 GHA IP 的封禁
+    # 通过环境变量 PROXY_URL 或 CHROME_PROXY 注入
+    proxy_url = os.environ.get("PROXY_URL", "").strip() or os.environ.get("CHROME_PROXY", "").strip()
+    proxy_arg = ""
+    if proxy_url:
+        # SeleniumBase 接受 --proxy-server=xxx 参数
+        proxy_arg = f"--proxy-server={proxy_url}"
+        print(f"[INFO] 使用代理: {proxy_url}")
+
+    # 合并 chromium 启动参数
+    chromium_args = "--disable-dev-shm-usage,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-background-timer-throttling,--disable-blink-features=AutomationControlled"
+    if proxy_arg:
+        chromium_args += f",{proxy_arg}"
+
     try:
         with SB(
             uc=True,
             test=True,
             locale="ko",
             headless=False,
-            chromium_arg="--disable-dev-shm-usage,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-background-timer-throttling"
+            chromium_arg=chromium_args
         ) as sb:
             print("\n[INFO] 浏览器已启动")
 
