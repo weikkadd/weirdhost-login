@@ -360,65 +360,81 @@ EOF
   # TUIC v5 (tuic://uuid:password@host:port?params)
   # ============================================================
   tuic)
-    UUID=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://([^:@]+)(?::[^@]*)?@.*|\1|')
-    PASSWORD=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://[^:]+:(.+?)@.*|\1|')
-    HOST_PORT=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://[^@]+@([^/?]+).*|\1|')
-    HOST=$(echo "$HOST_PORT" | cut -d: -f1)
-    PORT=$(echo "$HOST_PORT" | cut -d: -f2)
-    SNI=$(get_param "$PROXY_NODE_CLEAN_ARG" "sni" "$HOST")
-    CONGESTION=$(get_param "$PROXY_NODE_CLEAN_ARG" "congestion_control" "cubic")
-    UDP_RELAY=$(get_param "$PROXY_NODE_CLEAN_ARG" "udp_relay_mode" "native")
-    ALLOW_INSECURE=$(get_param "$PROXY_NODE_CLEAN_ARG" "allow_insecure" "0")
-    ZERO_RTT=$(get_param "$PROXY_NODE_CLEAN_ARG" "zero_rtt" "0")
-    HEARTBEAT=$(get_param "$PROXY_NODE_CLEAN_ARG" "heartbeat" "30s")
-    CERT_HASH_TYPE=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_hash_type" "")
-    CERT_HASH=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_hash" "")
-    CERT_PUBKEY=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_pubkey" "")
+    # 使用 Python 解析 TUIC URL（更可靠）
+    python3 - <<'PYEOF'
+import re, os, json
 
-    if [ "$ALLOW_INSECURE" = "1" ]; then INSECURE_BOOL=true; else INSECURE_BOOL=false; fi
-    if [ "$ZERO_RTT" = "1" ]; then ZERORTT_BOOL=true; else ZERORTT_BOOL=false; fi
+node = os.environ["PROXY_NODE_CLEAN_ARG"]
+# 去掉 #fragment
+node = re.sub(r'#.*$', '', node)
+# 匹配 tuic://uuid:password@host:port?key=value
+m = re.match(r'^tuic://([^:@]+):([^@]+)@([^?/]+)(?:\?([^#]*))?', node)
+if not m:
+    print(f"[ERROR] cannot parse tuic URL: {node}")
+    exit(1)
 
-    # 构建 TLS 配置
-    TLS_CONFIG="\"enabled\": true, \"server_name\": \"$SNI\""
-    if [ "$INSECURE_BOOL" = "true" ]; then
-      TLS_CONFIG="$TLS_CONFIG, \"insecure\": true"
-    fi
-    if [ -n "$CERT_HASH_TYPE" ] && [ -n "$CERT_HASH" ]; then
-      TLS_CONFIG="$TLS_CONFIG, \"pin_certificate\": true, \"certificate_hash\": \"$CERT_HASH\""
-    elif [ -n "$CERT_PUBKEY" ]; then
-      TLS_CONFIG="$TLS_CONFIG, \"pin_certificate\": true, \"certificate_public_key\": \"$CERT_PUBKEY\""
-    fi
+uuid = m.group(1)
+password = m.group(2)
+host_port = m.group(3)
+query = m.group(4) or ""
 
-    # 构建 UDP relay mode
-    case "$UDP_RELAY" in
-      native|quic) UDP_MODE="$UDP_RELAY" ;;
-      *) UDP_MODE="native" ;;
-    esac
+parts = host_port.split(":")
+host = parts[0]
+port = int(parts[1]) if len(parts) > 1 else 443
 
-    cat > "$CONFIG_FILE" <<EOF
-{
-  "log": {"level": "info"},
-  "inbounds": [
-    {"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 1080},
-    {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 1081}
-  ],
-  "outbounds": [
-    {
-      "type": "tuic",
-      "tag": "proxy",
-      "server": "$HOST",
-      "server_port": $PORT,
-      "uuid": "$UUID",
-      "password": "$PASSWORD",
-      "congestion_control": "$CONGESTION",
-      "udp_relay_mode": "$UDP_MODE",
-      "zero_rtt_handshake": $ZERORTT_BOOL,
-      "heartbeat": "$HEARTBEAT",
-      "tls": {$TLS_CONFIG}
-    }
-  ]
+# 解析 query 参数
+params = {}
+for pair in query.split("&"):
+    if "=" in pair:
+        k, v = pair.split("=", 1)
+        params[k] = v
+    else:
+        params[pair] = "true"
+
+sni = params.get("sni", str(host))
+congestion = params.get("congestion_control", "cubic")
+udp_mode = params.get("udp_relay_mode", "native")
+insecure = params.get("allow_insecure", "0") == "1"
+zero_rtt = params.get("zero_rtt", "0") == "1"
+heartbeat = params.get("heartbeat", "30s")
+
+tls = {"enabled": True, "server_name": sni}
+if insecure:
+    tls["insecure"] = True
+ch = params.get("cert_hash", "")
+cp = params.get("cert_pubkey", "")
+if ch:
+    tls["pin_certificate"] = True
+    tls["certificate_hash"] = ch
+elif cp:
+    tls["pin_certificate"] = True
+    tls["certificate_public_key"] = cp
+
+cfg = {
+    "log": {"level": "info"},
+    "inbounds": [
+        {"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 1080},
+        {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 1081}
+    ],
+    "outbounds": [{
+        "type": "tuic",
+        "tag": "proxy",
+        "server": host,
+        "server_port": port,
+        "uuid": uuid,
+        "password": password,
+        "congestion_control": congestion,
+        "udp_relay_mode": udp_mode,
+        "zero_rtt_handshake": zero_rtt,
+        "heartbeat": heartbeat,
+        "tls": tls
+    }]
 }
-EOF
+
+with open(os.environ["CONFIG_FILE"], "w") as f:
+    json.dump(cfg, f, indent=2)
+print(f"tuic config: {host}:{port} uuid={uuid[:8]}...")
+PYEOF
     ;;
 
   *)
