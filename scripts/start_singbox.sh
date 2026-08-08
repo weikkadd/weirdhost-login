@@ -400,6 +400,8 @@ insecure_val = params.get("allow_insecure", params.get("insecure", params.get("a
 insecure = insecure_val == "1"
 zero_rtt = params.get("zero_rtt", "0") == "1"
 heartbeat = params.get("heartbeat", "30s")
+# TUIC over QUIC - ignore alpn param (not applicable for QUIC)
+_ = params.pop("alpn", None)
 
 tls = {"enabled": True, "server_name": sni}
 if insecure:
