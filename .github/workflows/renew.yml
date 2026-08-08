@@ -1,0 +1,20 @@
+name: PellaFree Auto Renew
+
+on:
+  schedule:
+    # 每 88 天执行一次（在 90 天到期前触发）
+    - cron: '0 0 1 */3 *'
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Worker Renewal
+        run: |
+          curl -X POST "https://${{ secrets.WORKER_NAME }}.${{ secrets.WORKER_SUBDOMAIN }}/renew" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -v
+        continue-on-error: true

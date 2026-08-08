@@ -1,0 +1,43 @@
+name: Weirdhost Auto Renew
+
+on:
+  schedule:
+    # 每周执行一次（在会话过期前保持活跃）
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      max-parallel: 1
+      matrix:
+        account: ${{ fromJson(secrets.WEIRDHOST_ACCOUNTS) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv
+
+      - name: Renew Weirdhost session
+        env:
+          REMEMBER_WEB_COOKIE: ${{ matrix.account.cookie }}
+          WEIRDHOST_URL: ${{ matrix.account.url }}
+        run: |
+          echo "Renewing session for account..."
+          curl -X POST "https://weirdhost.net/login/check" \
+            -H "Cookie: ${REMEMBER_WEB_COOKIE}" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+          
+          echo "Renewal completed!"

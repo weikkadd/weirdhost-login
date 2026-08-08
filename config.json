@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "name": "账号1",
+      "cookie": "remember_web_XXXXXXXXXXXXXXXX=YYYYYYYY; other_cookies..."
+    }
+  ],
+  "settings": {
+    "renew_interval_days": 7,
+    "retry_attempts": 3,
+    "random_delay_seconds": {
+      "min": 2,
+      "max": 5
+    }
+  }
+}

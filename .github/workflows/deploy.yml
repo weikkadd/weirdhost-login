@@ -1,0 +1,30 @@
+name: Deploy Weirdhost Login
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run deployment check
+        env:
+          REMEMBER_WEB_COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+        run: |
+          python main.py --check

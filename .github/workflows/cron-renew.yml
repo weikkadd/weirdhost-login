@@ -1,0 +1,16 @@
+name: PellaFree Cron Renew
+
+on:
+  schedule:
+    # 每天 UTC 00:00 执行（用于检查订阅状态）
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check Worker Status
+        run: |
+          curl -s "https://${{ secrets.WORKER_NAME }}.${{ secrets.WORKER_SUBDOMAIN }}/health" | jq '.'
