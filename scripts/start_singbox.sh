@@ -361,7 +361,7 @@ EOF
   # ============================================================
   tuic)
     # 使用 Python 解析 TUIC URL（更可靠）
-    python3 - <<'PYEOF'
+    CONFIG_FILE="$CONFIG_FILE" PROXY_NODE_CLEAN_ARG="$PROXY_NODE_CLEAN_ARG" python3 - <<'PYEOF'
 import re, os, json
 
 node = os.environ["PROXY_NODE_CLEAN_ARG"]
