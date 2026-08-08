@@ -363,8 +363,9 @@ EOF
     # 使用 Python 解析 TUIC URL（更可靠）
     CONFIG_FILE="$CONFIG_FILE" PROXY_NODE_CLEAN_ARG="$PROXY_NODE_CLEAN_ARG" python3 - <<'PYEOF'
 import re, os, json
+from urllib.parse import unquote
 
-node = os.environ["PROXY_NODE_CLEAN_ARG"]
+node = unquote(os.environ["PROXY_NODE_CLEAN_ARG"])
 # 去掉 #fragment
 node = re.sub(r'#.*$', '', node)
 # 匹配 tuic://uuid:password@host:port?key=value
