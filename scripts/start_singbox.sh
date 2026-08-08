@@ -400,10 +400,13 @@ insecure_val = params.get("allow_insecure", params.get("insecure", params.get("a
 insecure = insecure_val == "1"
 zero_rtt = params.get("zero_rtt", "0") == "1"
 heartbeat = params.get("heartbeat", "30s")
-# TUIC over QUIC - ignore alpn param (not applicable for QUIC)
-_ = params.pop("alpn", None)
+# ⚠️ 关键修复：TUIC 基于 QUIC，必须设置 alpn=h3，否则 sing-box 会报
+#   CRYPTO_ERROR 0x178 (remote): tls: no application protocol
+# 默认 ["h3"]，可通过 URL 参数 alpn=h3,h2 覆盖
+alpn_str = params.get("alpn", "h3")
+alpn = [a.strip() for a in alpn_str.split(",") if a.strip()]
 
-tls = {"enabled": True, "server_name": sni}
+tls = {"enabled": True, "server_name": sni, "alpn": alpn}
 if insecure:
     tls["insecure"] = True
 ch = params.get("cert_hash", "")
