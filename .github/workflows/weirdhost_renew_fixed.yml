@@ -29,16 +29,13 @@ jobs:
       - name: Run Weirdhost renew script
         env:
           WEIRDHOST_COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+          CF_CLEARANCE: ${{ secrets.CF_CLEARANCE }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           echo "Starting Weirdhost auto renew..."
-          python weirdhost_renew.py \
-            --cookie "$WEIRDHOST_COOKIE" \
-            --proxy "$PROXY_URL" \
-            --telegram-bot "$TELEGRAM_BOT_TOKEN" \
-            --telegram-chat "$TELEGRAM_CHAT_ID"
+          python bothosting_renew.py
 
       - name: Upload artifacts on failure
         if: failure()

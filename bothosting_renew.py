@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 EMAIL = os.environ.get("EMAIL") or ""
 SESSION_TOKEN = os.environ.get("SESSION_TOKEN") or ""
 COOKIE = os.environ.get("WEIRDHOST_COOKIE") or ""
+CF_CLEARANCE = os.environ.get("CF_CLEARANCE") or ""
 GH_TOKEN = os.environ.get("GH_TOKEN") or ""
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID") or ""
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or ""
@@ -296,6 +297,20 @@ def main():
                 logger.error("❌ 未配置 Cookie 或 Session Token")
                 send_telegram_message(format_notification("❌ 配置错误", error="缺少 Cookie 或 Session Token"))
                 return False
+
+            # 注入 CF_CLEARANCE
+            if CF_CLEARANCE:
+                clearance_name = CF_CLEARANCE.split("=")[0] if "=" in CF_CLEARANCE else "cf_clearance"
+                clearance_value = CF_CLEARANCE.split("=", 1)[1] if "=" in CF_CLEARANCE else CF_CLEARANCE
+                sb.add_cookie({
+                    "name": clearance_name,
+                    "value": clearance_value,
+                    "domain": "hub.weirdhost.xyz",
+                    "path": "/"
+                })
+                logger.info(f"✅ CF_CLEARANCE 已注入 ({len(CF_CLEARANCE)} 字符)")
+            else:
+                logger.warning("⚠️ 未配置 CF_CLEARANCE，可能需要手动通过 Cloudflare 验证")
             
             # 访问网站
             logger.info(f"🌐 访问 {WEIRDHOST_URL}...")
