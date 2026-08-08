@@ -1037,6 +1037,75 @@ def process_single_server(sb, server_info, cookie_name, cookie_value, cookie_str
     return srv_result
 
 
+def _click_turnstile_manually(sb):
+    """手动查找并点击 Turnstile checkbox"""
+    try:
+        # 尝试多种方式定位 Turnstile 元素
+        selectors = [
+            "input[type='checkbox']",
+            "label.cb-lb",
+            ".cb-lb input",
+            "iframe[src*='challenges.cloudflare.com']",
+            ".cf-turnstile",
+        ]
+        
+        for selector in selectors:
+            try:
+                elements = sb.driver.find_elements("css selector", selector)
+                for elem in elements:
+                    if elem.is_displayed() and elem.is_enabled():
+                        rect = elem.rect
+                        x = int(rect['x'] + rect['width'] / 2)
+                        y = int(rect['y'] + rect['height'] / 2)
+                        
+                        # 使用 JavaScript 点击更可靠
+                        sb.driver.execute_script("""
+                            arguments[0].scrollIntoView({block: 'center'});
+                            arguments[0].click();
+                        """, elem)
+                        print(f"[INFO]   已点击 Turnstile 元素: {selector}")
+                        return True
+            except Exception as e:
+                continue
+        
+        # 如果上面的方法都没成功，尝试用 xdotool
+        print("[INFO]   尝试使用 xdotool 点击...")
+        result = subprocess.run(
+            ["xdotool", "search", "--onlyvisible", "--class", "chrome"],
+            capture_output=True, text=True, timeout=3
+        )
+        window_ids = result.stdout.strip().split('\n')
+        if window_ids and window_ids[0]:
+            subprocess.run(
+                ["xdotool", "windowactivate", window_ids[0]],
+                timeout=2, stderr=subprocess.DEVNULL
+            )
+            time.sleep(0.2)
+            
+            # 移动到 Turnstile 常见位置（页面中央）
+            screen_width = 1920
+            screen_height = 1080
+            target_x = screen_width // 2
+            target_y = screen_height // 2
+            
+            subprocess.run(
+                ["xdotool", "mousemove", str(target_x), str(target_y)],
+                timeout=2, stderr=subprocess.DEVNULL
+            )
+            time.sleep(0.3)
+            subprocess.run(
+                ["xdotool", "click", "1"],
+                timeout=2, stderr=subprocess.DEVNULL
+            )
+            print("[INFO]   已在页面中央点击")
+            return True
+            
+    except Exception as e:
+        print(f"[WARN]   手动点击失败: {e}")
+    
+    return False
+
+
 # ============================================================
 #  单个账号处理
 # ============================================================
@@ -1076,9 +1145,13 @@ def process_single_account(sb, account, account_index):
     # 先访问页面触发 CF
     sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=5)
 
-    # 如果配置了 cf_clearance，立刻注入
+    # 如果配置了 cf_clearance，先清除所有旧 cookie 再注入（避免 IP/指纹不匹配问题）
     if cf_clearance:
         try:
+            # 清除所有 cookies 以确保干净状态
+            sb.driver.delete_all_cookies()
+            time.sleep(1)
+            
             # 用 CDP 注入 cf_clearance
             sb.driver.execute_cdp_cmd("Network.setCookie", {
                 "name": "cf_clearance",
@@ -1086,15 +1159,15 @@ def process_single_account(sb, account, account_index):
                 "url": f"https://{DOMAIN}/",
                 "path": "/",
             })
-            print(f"[INFO]   cf_clearance 已注入")
-            time.sleep(2)
+            print(f"[INFO]   cf_clearance 已注入并清空旧 Cookie")
+            
             # 刷新页面让 cookie 生效
             sb.driver.get(f"https://{DOMAIN}/")
             time.sleep(5)
         except Exception as e:
             print(f"[WARN]   cf_clearance 注入失败: {e}")
 
-    # CF 挑战页标题关键词（提前定义，步骤 1 也要用）
+    # CF 挑战页关键词（包含 Turnstile 特有元素）
     _CHALLENGE_TITLES = [
         "just a moment", "보안 확인", "checking", "请稍候", "请稍后",
         "正在进行安全", "cloudflare", "verify", "checking your browser",
@@ -1105,25 +1178,37 @@ def process_single_account(sb, account, account_index):
         """检查当前页面是否仍在 CF 挑战状态"""
         try:
             title = (sb.execute_script("return document.title") or "").lower()
+            current_url = sb.get_current_url() or ""
+
+            # 检查是否在 CDN-CGI 路径（CF 挑战页标志）
+            if "cdn-cgi" in current_url:
+                return True
+
+            # 检查是否还有 Turnstile 元素存在（即使标题变了也可能还在验证）
+            turnstile_exists = sb.execute_script("""
+                return !!document.querySelector('input[name="cf-turnstile-response"]') ||
+                       !!document.querySelector('.cf-turnstile') ||
+                       !!document.querySelector('iframe[src*="challenges.cloudflare.com"]');
+            """)
+            if turnstile_exists:
+                return True
+
+            # 传统标题检测
             return any(kw in title for kw in _CHALLENGE_TITLES)
         except Exception:
             return True  # 异常时假设是挑战页
 
     def _wait_for_real_page(timeout=30):
-        """等待页面真正通过 CF 验证（URL + 标题双重校验）"""
-        for _ in range(timeout):
+        """等待页面真正通过 CF 验证（URL + 标题 + Turnstile 元素三重校验）"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
             try:
                 cur_url = sb.get_current_url() or ""
-                if "cdn-cgi" in cur_url:
-                    time.sleep(1)
-                    continue
-                if "hub.weirdhost.xyz" not in cur_url:
-                    time.sleep(1)
-                    continue
-                if _is_cf_challenge():
-                    time.sleep(1)
-                    continue
-                return True
+                # 如果 URL 不再是 cdn-cgi 且没有 Turnstile 元素
+                if "cdn-cgi" not in cur_url and "hub.weirdhost.xyz" in cur_url:
+                    if not _is_cf_challenge():
+                        return True
+                time.sleep(1)
             except Exception:
                 pass
             time.sleep(1)
@@ -1133,31 +1218,37 @@ def process_single_account(sb, account, account_index):
     if not _wait_for_real_page(timeout=30):
         print(f"[INFO]   CF 挑战页未自动通过，主动调用 uc_gui_handle_captcha...")
 
-        # 多轮处理：CF 偶尔需要点击多次才能放行
-        for cf_attempt in range(5):
-            print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/5...")
+        # 增强版 CF 处理：多轮 + 手动点击 Turnstile
+        for cf_attempt in range(8):
+            print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/8...")
+            
+            # 先刷新页面确保状态最新
+            try:
+                sb.driver.get(f"https://{DOMAIN}/")
+                time.sleep(3)
+            except Exception as e:
+                print(f"[WARN]   页面刷新失败: {e}")
+            
+            # 尝试自动处理
             try:
                 sb.uc_gui_handle_captcha()
-                time.sleep(5)  # 给 CF 时间发 token
+                time.sleep(5)
             except Exception as e:
                 print(f"[WARN]   uc_gui_handle_captcha 异常: {e}")
-
+            
             # 检查是否真的通过了
             if not _is_cf_challenge():
                 print(f"[INFO]   CF 验证通过（尝试 {cf_attempt+1} 次后）")
                 break
-
-            # 如果还在挑战页，刷新页面重新触发 CF
-            if cf_attempt < 4:
-                print(f"[INFO]   仍在挑战页，刷新页面重新触发 CF...")
+            
+            # 如果还在挑战页，尝试手动点击 Turnstile checkbox
+            if cf_attempt < 7:
+                print(f"[INFO]   仍在挑战页，尝试手动点击 Turnstile...")
                 try:
-                    sb.driver.get(f"https://{DOMAIN}/")
-                    time.sleep(5)
-                except Exception:
-                    pass
-
-                # 等待新挑战页加载
-                _wait_for_real_page(timeout=10)
+                    _click_turnstile_manually(sb)
+                    time.sleep(3)
+                except Exception as e:
+                    print(f"[WARN]   手动点击失败: {e}")
 
         # 最后兜底：调用原 handle_turnstile
         if _is_cf_challenge():
@@ -1639,10 +1730,31 @@ def add_server_time():
     else:
         print(f"[INFO] 未配置代理（直连 GitHub IP）")
 
-    # 合并 chromium 启动参数
-    chromium_args = "--disable-dev-shm-usage,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-background-timer-throttling,--disable-blink-features=AutomationControlled"
+    # 合并 chromium 启动参数 - 增强反检测能力
+    chromium_args = [
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-background-timer-throttling",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-popup-blocking",
+        "--disable-hang-monitor",
+        "--disable-prompt-on-repost",
+        "--disable-restore-session-state",
+        "--disable-translate",
+        "--disable-sync",
+        "--hide-crash-restore-bubble",
+        "--window-size=1920,1080",
+        "--window-position=0,0",
+        "--disable-blink-features=AutomationControlled",
+    ]
     if proxy_arg:
-        chromium_args += f",{proxy_arg}"
+        chromium_args.append(proxy_arg)
 
     try:
         with SB(
