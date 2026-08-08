@@ -1804,7 +1804,9 @@ def add_server_time():
         f"--user-agent={CURRENT_UA}",
         "--lang=en-US,en,ko-KR,ko",
         "--accept-lang=en-US,en,ko-KR,ko",
-        "--remote-debugging-port=0",
+        # 注意：port=0 在新版 ChromeDriver 下会报 "port must be > 0"，
+        # 改用一个具体的端口（9222 是 Chrome DevTools 默认端口）
+        "--remote-debugging-port=9222",
         "--disable-features=IsolateOrigins,site-per-process,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationHints",
         "--disable-site-isolation-trials",
         "--disable-setuid-sandbox",
