@@ -53,7 +53,7 @@ jobs:
             echo "✅ 续期成功"
             exit 0
           else
-            echo "⚠️  续期响应: $response"
+            echo "⚠️ 续期响应: $response"
             echo "❌ 续期失败"
             exit 1
           fi

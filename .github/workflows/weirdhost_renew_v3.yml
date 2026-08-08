@@ -10,10 +10,6 @@ jobs:
   renew:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      max-parallel: 1
-      matrix:
-        account: ${{ fromJson(secrets.WEIRDHOST_ACCOUNTS) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,13 +27,12 @@ jobs:
 
       - name: Renew Weirdhost session
         env:
-          COOKIE: ${{ matrix.account.cookie }}
-          URL: ${{ matrix.account.url || 'https://hub.weirdhost.xyz' }}
+          COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+          URL: ${{ secrets.WEIRDHOST_URL || 'https://hub.weirdhost.xyz' }}
         run: |
           echo "========================================"
           echo "开始 Weirdhost 自动续期"
           echo "========================================"
-          echo "处理账号: ${{ matrix.account.name }}"
           echo "========================================"
           
           # 使用纯 API 调用，不依赖浏览器
@@ -53,7 +48,7 @@ jobs:
             echo "✅ 续期成功"
             exit 0
           else
-            echo "⚠️  续期响应: $response"
+            echo "⚠️ 续期响应: $response"
             echo "❌ 续期失败"
             exit 1
           fi
@@ -68,6 +63,6 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{
               \"chat_id\": \"${TELEGRAM_CHAT_ID}\",
-              \"text\": \"❌ Weirdhost 续期失败\\n\\n账号: ${{ matrix.account.name }}\\n时间: $(date '+%Y-%m-%d %H:%M:%S')\",
+              \"text\": \"❌ Weirdhost 续期失败\\n\\n时间: $(date '+%Y-%m-%d %H:%M:%S')\",
               \"parse_mode\": \"HTML\"
             }"
