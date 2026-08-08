@@ -1,0 +1,25 @@
+name: Weirdhost 简单续期
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Renew session
+        env:
+          COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+          URL: ${{ secrets.WEIRDHOST_URL || 'https://hub.weirdhost.xyz' }}
+        run: |
+          echo "开始续期..."
+          curl -s -X POST "${URL}/login/check" \
+            -H "Cookie: ${COOKIE}" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            -d '{}'
+          echo ""
+          echo "续期完成"

@@ -1,0 +1,21 @@
+name: Weirdhost 极简续期
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Renew session
+        env:
+          COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+        run: |
+          curl -s -X POST "https://hub.weirdhost.xyz/login/check" \
+            -H "Cookie: ${COOKIE}" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: Mozilla/5.0" \
+            -d '{}'
