@@ -378,6 +378,49 @@ EOF
     if [ "$ALLOW_INSECURE" = "1" ]; then INSECURE_BOOL=true; else INSECURE_BOOL=false; fi
     if [ "$ZERO_RTT" = "1" ]; then ZERORTT_BOOL=true; else ZERORTT_BOOL=false; fi
 
+    # 构建 TLS 配置
+    TLS_CONFIG="\"enabled\": true, \"server_name\": \"$SNI\""
+    if [ "$INSECURE_BOOL" = "true" ]; then
+      TLS_CONFIG="$TLS_CONFIG, \"insecure\": true"
+    fi
+    if [ -n "$CERT_HASH_TYPE" ] && [ -n "$CERT_HASH" ]; then
+      TLS_CONFIG="$TLS_CONFIG, \"pin_certificate\": true, \"certificate_hash\": \"$CERT_HASH\""
+    elif [ -n "$CERT_PUBKEY" ]; then
+      TLS_CONFIG="$TLS_CONFIG, \"pin_certificate\": true, \"certificate_public_key\": \"$CERT_PUBKEY\""
+    fi
+
+    # 构建 UDP relay mode
+    case "$UDP_RELAY" in
+      native|quic) UDP_MODE="$UDP_RELAY" ;;
+      *) UDP_MODE="native" ;;
+    esac
+
+    cat > "$CONFIG_FILE" <<EOF
+{
+  "log": {"level": "info"},
+  "inbounds": [
+    {"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 1080},
+    {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 1081}
+  ],
+  "outbounds": [
+    {
+      "type": "tuic",
+      "tag": "proxy",
+      "server": "$HOST",
+      "server_port": $PORT,
+      "uuid": "$UUID",
+      "password": "$PASSWORD",
+      "congestion_control": "$CONGESTION",
+      "udp_relay_mode": "$UDP_MODE",
+      "zero_rtt_handshake": $ZERORTT_BOOL,
+      "heartbeat": "$HEARTBEAT",
+      "tls": {$TLS_CONFIG}
+    }
+  ]
+}
+EOF
+    ;;
+
   *)
     echo "Unsupported protocol: $PROTO"
     echo "Supported: hysteria2/hy2, vless, vmess, trojan, ss, tuic"
