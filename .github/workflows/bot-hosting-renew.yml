@@ -1,0 +1,58 @@
+name: Bot-Hosting 自动续期
+
+on:
+  schedule:
+    # 每 3 天执行一次
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install seleniumbase requests
+          seleniumbase install chromium
+
+      - name: Run Weirdhost renew script
+        env:
+          EMAIL: ${{ secrets.EMAIL }}
+          SESSION_TOKEN: ${{ secrets.SESSION_TOKEN }}
+          WEIRDHOST_COOKIE: ${{ secrets.WEIRDHOST_COOKIE }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          IS_PROXY: ${{ secrets.IS_PROXY }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          HEADLESS: 'true'
+          WEIRDHOST_URL: 'https://hub.weirdhost.xyz'
+        run: |
+          echo "========================================"
+          echo "开始 Bot-Hosting 自动续期"
+          echo "========================================"
+          python bothosting_renew.py
+          echo "========================================"
+          echo "续期脚本执行完成"
+          echo "========================================"
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts
+          path: |
+            *.png
+            *.log
+            screenshots/
