@@ -1082,22 +1082,34 @@ def _click_turnstile_manually(sb):
             )
             time.sleep(0.2)
             
-            # 移动到 Turnstile 常见位置（页面中央）
+            # 移动到 Turnstile 复选框位置
+            # Turnstile 默认在页面中央偏上，复选框在 widget 左侧
+            # 改进：尝试多个候选位置（CF 在不同分辨率下位置不同）
             screen_width = 1920
             screen_height = 1080
-            target_x = screen_width // 2
-            target_y = screen_height // 2
-            
-            subprocess.run(
-                ["xdotool", "mousemove", str(target_x), str(target_y)],
-                timeout=2, stderr=subprocess.DEVNULL
-            )
-            time.sleep(0.3)
-            subprocess.run(
-                ["xdotool", "click", "1"],
-                timeout=2, stderr=subprocess.DEVNULL
-            )
-            print("[INFO]   已在页面中央点击")
+            # Turnstile widget 宽度 300px，复选框在 widget 左侧 30px
+            # widget 通常居中显示，所以复选框 X 大约是 (1920-300)/2 + 30 = 840
+            # Y 大约是页面中部偏上：540 - 100 = 440（取决于 widget 在哪个位置）
+            candidate_positions = [
+                (840, 440),   # 居中偏上（最常见）
+                (840, 540),   # 居中
+                (960, 540),   # 真正屏幕中央
+                (760, 540),   # 偏左（widget 在左侧时）
+                (840, 340),   # 偏上（页面顶部 widget）
+            ]
+            for target_x, target_y in candidate_positions:
+                subprocess.run(
+                    ["xdotool", "mousemove", str(target_x), str(target_y)],
+                    timeout=2, stderr=subprocess.DEVNULL
+                )
+                time.sleep(0.3)
+                subprocess.run(
+                    ["xdotool", "click", "1"],
+                    timeout=2, stderr=subprocess.DEVNULL
+                )
+                print(f"[INFO]   已在位置 ({target_x}, {target_y}) 点击")
+                time.sleep(1)
+            print("[INFO]   已尝试多个候选位置点击 Turnstile")
             return True
             
     except Exception as e:
@@ -1238,15 +1250,25 @@ def process_single_account(sb, account, account_index):
         print(f"[INFO]   CF 挑战页未自动通过，主动调用 uc_gui_handle_captcha...")
 
         # 增强版 CF 处理：多轮 + 手动点击 Turnstile
+        # 改进：减少刷新次数（每次刷新都触发 CF 重新检测，反而更难通过）
+        #       前 3 次只调 uc_gui_click_captcha（不打断 CF 等待）
+        #       后续才刷新页面 + 重新注入
         for cf_attempt in range(10):
             print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/10...")
 
-            # 刷新页面确保状态最新
-            try:
-                sb.driver.get(f"https://{DOMAIN}/")
-                time.sleep(4)
-            except Exception as e:
-                print(f"[WARN]   页面刷新失败: {e}")
+            # 前 3 次不刷新，直接调 uc_gui_click_captcha（让 CF 自己处理）
+            # 第 4 次起才刷新页面
+            if cf_attempt >= 3:
+                try:
+                    # 用 uc_open_with_reconnect 而不是 driver.get
+                    # 这样 SeleniumBase 会重新连接 Chrome，刷新反检测状态
+                    sb.uc_open_with_reconnect(f"https://{DOMAIN}/", reconnect_time=4)
+                    time.sleep(2)
+                except Exception as e:
+                    print(f"[WARN]   页面刷新失败: {e}")
+            else:
+                # 前 3 次只等待，不打断 CF
+                time.sleep(3)
 
             # 注入反检测 JS（每次刷新后重新注入）
             try:
