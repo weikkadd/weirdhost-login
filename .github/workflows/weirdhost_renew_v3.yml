@@ -1,4 +1,4 @@
-name: Weirdhost 多账号自动续期
+name: Weirdhost 自动续期 (API 版)
 
 on:
   schedule:
