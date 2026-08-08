@@ -356,9 +356,31 @@ EOF
 EOF
     ;;
 
+  # ============================================================
+  # TUIC v5 (tuic://uuid:password@host:port?params)
+  # ============================================================
+  tuic)
+    UUID=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://([^:@]+)(?::[^@]*)?@.*|\1|')
+    PASSWORD=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://[^:]+:(.+?)@.*|\1|')
+    HOST_PORT=$(echo "$PROXY_NODE_CLEAN_ARG" | sed -E 's|^tuic://[^@]+@([^/?]+).*|\1|')
+    HOST=$(echo "$HOST_PORT" | cut -d: -f1)
+    PORT=$(echo "$HOST_PORT" | cut -d: -f2)
+    SNI=$(get_param "$PROXY_NODE_CLEAN_ARG" "sni" "$HOST")
+    CONGESTION=$(get_param "$PROXY_NODE_CLEAN_ARG" "congestion_control" "cubic")
+    UDP_RELAY=$(get_param "$PROXY_NODE_CLEAN_ARG" "udp_relay_mode" "native")
+    ALLOW_INSECURE=$(get_param "$PROXY_NODE_CLEAN_ARG" "allow_insecure" "0")
+    ZERO_RTT=$(get_param "$PROXY_NODE_CLEAN_ARG" "zero_rtt" "0")
+    HEARTBEAT=$(get_param "$PROXY_NODE_CLEAN_ARG" "heartbeat" "30s")
+    CERT_HASH_TYPE=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_hash_type" "")
+    CERT_HASH=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_hash" "")
+    CERT_PUBKEY=$(get_param "$PROXY_NODE_CLEAN_ARG" "cert_pubkey" "")
+
+    if [ "$ALLOW_INSECURE" = "1" ]; then INSECURE_BOOL=true; else INSECURE_BOOL=false; fi
+    if [ "$ZERO_RTT" = "1" ]; then ZERORTT_BOOL=true; else ZERORTT_BOOL=false; fi
+
   *)
     echo "Unsupported protocol: $PROTO"
-    echo "Supported: hysteria2/hy2, vless, vmess, trojan, ss"
+    echo "Supported: hysteria2/hy2, vless, vmess, trojan, ss, tuic"
     exit 1
     ;;
 esac
