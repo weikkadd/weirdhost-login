@@ -1152,18 +1152,37 @@ def process_single_account(sb, account, account_index):
             sb.driver.delete_all_cookies()
             time.sleep(1)
             
-            # 用 CDP 注入 cf_clearance
+            # 访问域名以设置正确的 cookie 上下文
+            sb.driver.get(f"https://{DOMAIN}/")
+            time.sleep(3)
+            
+            # 用 CDP 注入 cf_clearance - 确保域名匹配
             sb.driver.execute_cdp_cmd("Network.setCookie", {
                 "name": "cf_clearance",
                 "value": cf_clearance,
-                "url": f"https://{DOMAIN}/",
+                "domain": DOMAIN,
                 "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "Lax"
             })
-            print(f"[INFO]   cf_clearance 已注入并清空旧 Cookie")
+            print(f"[INFO]   cf_clearance 已注入 ({len(cf_clearance)} 字符)")
             
-            # 刷新页面让 cookie 生效
-            sb.driver.get(f"https://{DOMAIN}/")
-            time.sleep(5)
+            # 验证 cookie 是否生效
+            cookies = sb.driver.get_cookies()
+            cf_cookie = next((c for c in cookies if c['name'] == 'cf_clearance'), None)
+            if cf_cookie:
+                print(f"[INFO]   Cookie 已确认: domain={cf_cookie.get('domain')}, secure={cf_cookie.get('secure')}")
+            else:
+                print(f"[WARN]   未找到 cf_clearance cookie，尝试重新注入...")
+                sb.driver.execute_cdp_cmd("Network.setCookie", {
+                    "name": "cf_clearance",
+                    "value": cf_clearance,
+                    "url": f"https://{DOMAIN}/",
+                    "path": "/",
+                })
+            
+            time.sleep(2)
         except Exception as e:
             print(f"[WARN]   cf_clearance 注入失败: {e}")
 
@@ -1219,34 +1238,54 @@ def process_single_account(sb, account, account_index):
         print(f"[INFO]   CF 挑战页未自动通过，主动调用 uc_gui_handle_captcha...")
 
         # 增强版 CF 处理：多轮 + 手动点击 Turnstile
-        for cf_attempt in range(8):
-            print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/8...")
-            
-            # 先刷新页面确保状态最新
+        for cf_attempt in range(10):
+            print(f"[INFO]   CF 处理尝试 {cf_attempt+1}/10...")
+
+            # 刷新页面确保状态最新
             try:
                 sb.driver.get(f"https://{DOMAIN}/")
-                time.sleep(3)
+                time.sleep(4)
             except Exception as e:
                 print(f"[WARN]   页面刷新失败: {e}")
-            
+
+            # 注入反检测 JS（每次刷新后重新注入）
+            try:
+                _ANTI_DETECT_JS = """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
+                Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(param) {
+                    if (param === 37445) return 'Google Inc. (Apple)';
+                    if (param === 37446) return 'ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)';
+                    return getParameter.call(this, param);
+                };
+                true;
+                """
+                sb.execute_script(_ANTI_DETECT_JS)
+                time.sleep(1)
+            except:
+                pass
+
             # 尝试自动处理
             try:
                 sb.uc_gui_handle_captcha()
-                time.sleep(5)
+                time.sleep(8)
             except Exception as e:
                 print(f"[WARN]   uc_gui_handle_captcha 异常: {e}")
-            
+
             # 检查是否真的通过了
             if not _is_cf_challenge():
                 print(f"[INFO]   CF 验证通过（尝试 {cf_attempt+1} 次后）")
                 break
-            
+
             # 如果还在挑战页，尝试手动点击 Turnstile checkbox
-            if cf_attempt < 7:
+            if cf_attempt < 9:
                 print(f"[INFO]   仍在挑战页，尝试手动点击 Turnstile...")
                 try:
                     _click_turnstile_manually(sb)
-                    time.sleep(3)
+                    time.sleep(5)
                 except Exception as e:
                     print(f"[WARN]   手动点击失败: {e}")
 
@@ -1623,7 +1662,7 @@ def send_account_notification(result):
         lines.append("状态：⚠️ Cookie 已失效，请及时更新 WEIRDHOST_COOKIE_*")
         screenshot = None
     elif status == "no_server":
-        lines.append("状态：⚠️ 没有服务器")
+        lines.append("��态：⚠️ 没有服务器")
         screenshot = None
     else:
         for s in servers:
@@ -1730,6 +1769,17 @@ def add_server_time():
     else:
         print(f"[INFO] 未配置代理（直连 GitHub IP）")
 
+    # Chrome 用户代理列表 - 轮换使用真实桌面浏览器 UA
+    _USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+    ]
+    CURRENT_UA = random.choice(_USER_AGENTS)
+
     # 合并 chromium 启动参数 - 增强反检测能力
     chromium_args = [
         "--disable-dev-shm-usage",
@@ -1751,7 +1801,33 @@ def add_server_time():
         "--hide-crash-restore-bubble",
         "--window-size=1920,1080",
         "--window-position=0,0",
-        "--disable-blink-features=AutomationControlled",
+        f"--user-agent={CURRENT_UA}",
+        "--lang=en-US,en,ko-KR,ko",
+        "--accept-lang=en-US,en,ko-KR,ko",
+        "--remote-debugging-port=0",
+        "--disable-features=IsolateOrigins,site-per-process,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationHints",
+        "--disable-site-isolation-trials",
+        "--disable-setuid-sandbox",
+        "--deterministic-mode",
+        "--enable-features=NetworkService,NetworkServiceInProcess",
+        "--disable-features=TranslateUI",
+        "--disable-ipc-flooding-protection",
+        "--metrics-recording-only",
+        "--mute-audio",
+        "--no-default-browser-check",
+        "--autoplay-policy=no-user-gesture-required",
+        "--disable-background-networking",
+        "--disable-default-apps",
+        "--disable-domain-reliability",
+        "--disable-features=TranslateUI",
+        "--disable-hang-monitor",
+        "--disable-ipc-flooding-protection",
+        "--disable-popup-blocking",
+        "--disable-prompt-on-repost",
+        "--dns-prefetch-disable",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--no-startup-window",
     ]
     if proxy_arg:
         chromium_args.append(proxy_arg)
@@ -1765,6 +1841,65 @@ def add_server_time():
             chromium_arg=chromium_args
         ) as sb:
             print("\n[INFO] 浏览器已启动")
+
+            # 注入反检测 JS：随机化 Canvas/WebGL 指纹、隐藏自动化标记
+            try:
+                _ANTI_DETECT_JS = """
+                // 1. 伪装 navigator 属性
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
+                Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+                Object.defineProperty(navigator, 'language', {get: () => 'en-US'});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                
+                // 2. 随机化 Canvas 指纹
+                const origGetContext = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function(...args) {
+                    const ctx = origGetContext.apply(this, args);
+                    if (ctx && args[0] === '2d') {
+                        const origFillText = ctx.fillText;
+                        ctx.fillText = function(...a) {
+                            return origFillText.apply(this, a);
+                        };
+                    }
+                    return ctx;
+                };
+                
+                // 3. WebGL 供应商/渲染器随机化
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(param) {
+                    if (param === 37445) return 'Google Inc. (Apple)';
+                    if (param === 37446) return 'ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)';
+                    return getParameter.call(this, param);
+                };
+                
+                // 4. 移除性能对象中的自动化标记
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                
+                // 5. 伪装箱 Chrome 特性
+                window.chrome = {
+                    runtime: {},
+                    loadTimes: function() {},
+                    csi: function() {},
+                    app: {}
+                };
+                
+                // 6. 修改 Permissions.query
+                const origQuery = PermissionManager.prototype.query;
+                PermissionManager.prototype.query = async function(name) {
+                    if (name === 'notifications') return {state: 'prompt'};
+                    return origQuery.apply(this, arguments);
+                };
+                
+                true;
+                """
+                result = sb.execute_script(_ANTI_DETECT_JS)
+                print(f"[INFO]   反检测脚本注入: {'成功' if result else '失败'}")
+            except Exception as e:
+                print(f"[WARN]   反检测脚本注入失败: {e}")
 
             # 启动后立即验证代理是否生效（通过访问 ipinfo.io 查出口 IP）
             try:
