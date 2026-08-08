@@ -394,7 +394,9 @@ for pair in query.split("&"):
 sni = params.get("sni", str(host))
 congestion = params.get("congestion_control", "cubic")
 udp_mode = params.get("udp_relay_mode", "native")
-insecure = params.get("allow_insecure", "0") == "1"
+# 兼容 insecure / allow_insecure / allowInsecure
+insecure_val = params.get("allow_insecure", params.get("insecure", params.get("allowInsecure", "0")))
+insecure = insecure_val == "1"
 zero_rtt = params.get("zero_rtt", "0") == "1"
 heartbeat = params.get("heartbeat", "30s")
 
