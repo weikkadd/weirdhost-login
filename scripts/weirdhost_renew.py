@@ -1804,9 +1804,9 @@ def add_server_time():
         f"--user-agent={CURRENT_UA}",
         "--lang=en-US,en,ko-KR,ko",
         "--accept-lang=en-US,en,ko-KR,ko",
-        # 注意：port=0 在新版 ChromeDriver 下会报 "port must be > 0"，
-        # 改用一个具体的端口（9222 是 Chrome DevTools 默认端口）
-        "--remote-debugging-port=9222",
+        # 不再显式指定 --remote-debugging-port：SeleniumBase UC 模式会自动分配端口。
+        # 显式指定 port=0 会被新版 ChromeDriver 拒绝（报 "port must be > 0"），
+        # 指定固定端口（如 9222）会与 --no-startup-window 冲突（报 "unable to discover open pages"）。
         "--disable-features=IsolateOrigins,site-per-process,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationHints",
         "--disable-site-isolation-trials",
         "--disable-setuid-sandbox",
@@ -1829,7 +1829,9 @@ def add_server_time():
         "--dns-prefetch-disable",
         "--password-store=basic",
         "--use-mock-keychain",
-        "--no-startup-window",
+        # 不再使用 --no-startup-window：与 SeleniumBase UC 模式不兼容，
+        # ChromeDriver 连不上 Chrome 的 /json 端点（报 "unable to discover open pages"）。
+        # UC 模式需要至少一个 about:blank 页面用于注入。
     ]
     if proxy_arg:
         chromium_args.append(proxy_arg)
