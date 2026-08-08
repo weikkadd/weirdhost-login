@@ -45,12 +45,23 @@ cp .env.example .env
 
 ### 本地运行
 ```bash
+# 1. 安装依赖
+pip install -r requirements_bothosting.txt
+seleniumbase install chromium
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填写实际值
+
+# 3. 运行脚本
 python bothosting_renew.py
 ```
 
 ### GitHub Actions
-- 自动：每 3 天 UTC 00:00 执行
-- 手动：点击 Actions → "Bot-Hosting 自动续期" → "Run workflow"
+```yaml
+# 自动触发：每 3 天 UTC 00:00 执行
+# 手动触发：Actions → Bot-Hosting 自动续期 → Run workflow
+```
 
 ## Turnstile 验证说明
 
@@ -79,17 +90,28 @@ python bothosting_renew.py
 ## 故障排除
 
 ### 1. Turnstile 验证失败
-- 检查代理 IP 质量
-- 尝试更换代理
-- 增加等待时间
+- 检查代理 IP 质量（推荐日本/韩国 residential IP）
+- 尝试更换代理服务器
+- 增加等待时间（修改 max_attempts 参数）
+- 查看截图诊断：`cf_challenge_failed.png`
 
 ### 2. 会话已过期
 - 更新 SESSION_TOKEN 或 COOKIE
-- 从浏览器复制最新 Cookie
+- 从浏览器复制最新 Cookie：
+  1. 登录网站
+  2. F12 → Application → Cookies
+  3. 复制 `session_token` 或 `remember_web` 的值
 
 ### 3. 脚本超时
-- 增加 GitHub Actions timeout
-- 检查网络连接
+- 修改 `.github/workflows/bot-hosting-renew.yml` 中的 `timeout-minutes`
+- 检查代理网络连接
+- 查看 GitHub Actions 日志详细错误
+
+### 4. 代理连接失败
+```bash
+# 测试代理是否可用
+curl -x socks5://127.0.0.1:1080 https://api.ip.sb/ip
+```
 
 ## 日志查看
 
@@ -99,17 +121,32 @@ python bothosting_renew.py
 
 ## 安全注意事项
 
-1. **不要提交 .env 文件**
-2. **定期更新 Cookie**
-3. **使用专用 GitHub Token**
-4. **启用 2FA**
+1. **不要提交 .env 文件** - 已添加到 .gitignore
+2. **定期更新 Cookie** - 建议每月检查一次
+3. **使用专用 GitHub Token** - 仅授予必要权限
+4. **启用 2FA** - GitHub 和 Telegram 都启用
+5. **代理安全** - 使用可信的代理服务商
 
 ## 免责声明
 
 本项目仅供学习研究使用。使用者需自行承担一切后果。
+
+**重要提示**：
+- 请遵守网站服务条款
+- 不要用于商业用途
+- 自行承担使用风险
 
 ## 相关链接
 
 - [seleniumbase 文档](https://seleniumbase.io/)
 - [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/)
 - [GitHub Actions 文档](https://docs.github.com/cn/actions)
+- [undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver)
+
+## 更新日志
+
+### v1.0.0 (2026-08-08)
+- ✅ 初始版本
+- ✅ 支持 Turnstile 验证
+- ✅ 多账号管理
+- ✅ Telegram 通知
